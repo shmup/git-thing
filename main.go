@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -15,15 +16,24 @@ import (
 func main() {
 
 	if len(os.Args) < 2 {
-		fmt.Println("Usage: go run main.go <repository_path>")
+		fmt.Println("Usage: go run main.go <repository_path> [num_commits]")
 		return
 	}
 	repoPath := os.Args[1]
 
-	numCommits := 10000
+	numCommits := 100
+	if len(os.Args) >= 3 {
+		if n, err := strconv.Atoi(os.Args[2]); err == nil {
+			numCommits = n
+		}
+	}
 
 	rand.Seed(time.Now().UnixNano())
 
+	startSize := getGitSize(repoPath)
+	var endSize int64
+
+	fmt.Printf("%-7s  %6s  %10s\n", "sha", "commit", "size")
 	for i := 0; i < numCommits; i++ {
 		yamlFile, err := getRandomYAMLFile(repoPath)
 		if err != nil {
@@ -38,8 +48,14 @@ func main() {
 			log.Fatalf("Failed to commit changes: %v", err)
 		}
 
-		fmt.Printf("Commit %d created\n", i+1)
+		sha := getHeadSha(repoPath)
+		endSize = getGitSize(repoPath)
+		fmt.Printf("%-7s  %6d  %10s\n", sha, i+1, humanSize(endSize))
 	}
+
+	growthPerCommit := float64(endSize-startSize) / float64(numCommits)
+	estAt1M := startSize + int64(growthPerCommit*1_000_000)
+	fmt.Printf("\ngrowth: ~%s/commit, est @ 1M: %s\n", humanSize(int64(growthPerCommit)), humanSize(estAt1M))
 }
 
 func getRandomYAMLFile(dirPath string) (string, error) {
@@ -138,4 +154,39 @@ func commitChanges(repoPath, filePath string) error {
 	}
 
 	return nil
+}
+
+func getHeadSha(repoPath string) string {
+	cmd := exec.Command("git", "rev-parse", "--short", "HEAD")
+	cmd.Dir = repoPath
+	out, err := cmd.Output()
+	if err != nil {
+		return "???????"
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func getGitSize(repoPath string) int64 {
+	var size int64
+	gitPath := filepath.Join(repoPath, ".git")
+	filepath.Walk(gitPath, func(_ string, info os.FileInfo, err error) error {
+		if err == nil && !info.IsDir() {
+			size += info.Size()
+		}
+		return nil
+	})
+	return size
+}
+
+func humanSize(b int64) string {
+	const unit = 1024
+	if b < unit {
+		return fmt.Sprintf("%dB", b)
+	}
+	div, exp := int64(unit), 0
+	for n := b / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f%c", float64(b)/float64(div), "KMGTPE"[exp])
 }
