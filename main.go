@@ -78,7 +78,10 @@ func main() {
 
 	growthPerCommit := float64(endSize-startSize) / float64(numCommits)
 	estAt1M := startSize + int64(growthPerCommit*1_000_000)
-	fmt.Printf("\ngrowth: ~%s/commit, est @ 1M: %s\n", humanSize(int64(growthPerCommit)), humanSize(estAt1M))
+	ioPerCommit := totalIO / time.Duration(numCommits)
+	estTimeAt1M := ioPerCommit * 1_000_000
+	estHours := estTimeAt1M.Hours()
+	fmt.Printf("\ngrowth: ~%s/commit, est @ 1M: %s (~%.0fh)\n", humanSize(int64(growthPerCommit)), humanSize(estAt1M), estHours)
 	fmt.Printf("time: %s total, %s io (%.0f%%), %s overhead\n", fmtDuration(totalTime), fmtDuration(totalIO), ioPct, fmtDuration(overhead))
 }
 
