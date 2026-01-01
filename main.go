@@ -35,7 +35,8 @@ func main() {
 	var totalIO time.Duration
 	totalStart := time.Now()
 
-	fmt.Printf("%-7s  %6s  %12s  %8s\n", "sha", "commit", "size", "io")
+	fmt.Printf("%-7s  %6s  %12s  %8s  %s\n", "sha", "commit", "size", "io", "delta")
+	var prevIO time.Duration
 	for i := 0; i < numCommits; i++ {
 		yamlFile, err := getRandomYAMLFile(repoPath)
 		if err != nil {
@@ -54,7 +55,21 @@ func main() {
 
 		sha := getHeadSha(repoPath)
 		endSize = getGitSize(repoPath)
-		fmt.Printf("%-7s  %6d  %12s  %8s\n", sha, i+1, humanSize(endSize), fmtDuration(ioTime))
+
+		delta := ""
+		if i > 0 {
+			diff := ioTime - prevIO
+			if diff > 0 {
+				delta = fmt.Sprintf("\033[31m+%s\033[0m", fmtDuration(diff))
+			} else if diff < 0 {
+				delta = fmt.Sprintf("\033[32m%s\033[0m", fmtDuration(diff))
+			} else {
+				delta = "="
+			}
+		}
+		prevIO = ioTime
+
+		fmt.Printf("%-7s  %6d  %12s  %8s  %s\n", sha, i+1, humanSize(endSize), fmtDuration(ioTime), delta)
 	}
 
 	totalTime := time.Since(totalStart)
@@ -204,11 +219,19 @@ func humanSize(b int64) string {
 }
 
 func fmtDuration(d time.Duration) string {
+	neg := d < 0
+	if neg {
+		d = -d
+	}
+	prefix := ""
+	if neg {
+		prefix = "-"
+	}
 	if d < time.Millisecond {
-		return fmt.Sprintf("%dµs", d.Microseconds())
+		return fmt.Sprintf("%s%dµs", prefix, d.Microseconds())
 	}
 	if d < time.Second {
-		return fmt.Sprintf("%dms", d.Milliseconds())
+		return fmt.Sprintf("%s%dms", prefix, d.Milliseconds())
 	}
-	return fmt.Sprintf("%.1fs", d.Seconds())
+	return fmt.Sprintf("%s%.1fs", prefix, d.Seconds())
 }
