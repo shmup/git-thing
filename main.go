@@ -32,8 +32,10 @@ func main() {
 
 	startSize := getGitSize(repoPath)
 	var endSize int64
+	var totalIO time.Duration
+	totalStart := time.Now()
 
-	fmt.Printf("%-7s  %6s  %10s\n", "sha", "commit", "size")
+	fmt.Printf("%-7s  %6s  %12s  %8s\n", "sha", "commit", "size", "io")
 	for i := 0; i < numCommits; i++ {
 		yamlFile, err := getRandomYAMLFile(repoPath)
 		if err != nil {
@@ -44,18 +46,25 @@ func main() {
 			log.Fatalf("Failed to change line in YAML file: %v", err)
 		}
 
-		if err := commitChanges(repoPath, yamlFile); err != nil {
+		ioTime, err := commitChanges(repoPath, yamlFile)
+		if err != nil {
 			log.Fatalf("Failed to commit changes: %v", err)
 		}
+		totalIO += ioTime
 
 		sha := getHeadSha(repoPath)
 		endSize = getGitSize(repoPath)
-		fmt.Printf("%-7s  %6d  %10s\n", sha, i+1, humanSize(endSize))
+		fmt.Printf("%-7s  %6d  %12s  %8s\n", sha, i+1, humanSize(endSize), fmtDuration(ioTime))
 	}
+
+	totalTime := time.Since(totalStart)
+	overhead := totalTime - totalIO
+	ioPct := float64(totalIO) / float64(totalTime) * 100
 
 	growthPerCommit := float64(endSize-startSize) / float64(numCommits)
 	estAt1M := startSize + int64(growthPerCommit*1_000_000)
 	fmt.Printf("\ngrowth: ~%s/commit, est @ 1M: %s\n", humanSize(int64(growthPerCommit)), humanSize(estAt1M))
+	fmt.Printf("time: %s total, %s io (%.0f%%), %s overhead\n", fmtDuration(totalTime), fmtDuration(totalIO), ioPct, fmtDuration(overhead))
 }
 
 func getRandomYAMLFile(dirPath string) (string, error) {
@@ -144,16 +153,19 @@ func changeRandomLine(filePath string) error {
 	return nil
 }
 
-func commitChanges(repoPath, filePath string) error {
+func commitChanges(repoPath, filePath string) (time.Duration, error) {
 	cmd := exec.Command("git", "commit", "-am", fmt.Sprintf("Updated %s", filePath))
 	cmd.Dir = repoPath
 
+	start := time.Now()
 	err := cmd.Run()
+	elapsed := time.Since(start)
+
 	if err != nil {
-		return err
+		return elapsed, err
 	}
 
-	return nil
+	return elapsed, nil
 }
 
 func getHeadSha(repoPath string) string {
@@ -188,5 +200,15 @@ func humanSize(b int64) string {
 		div *= unit
 		exp++
 	}
-	return fmt.Sprintf("%.1f%c", float64(b)/float64(div), "KMGTPE"[exp])
+	return fmt.Sprintf("%.3f%c", float64(b)/float64(div), "KMGTPE"[exp])
+}
+
+func fmtDuration(d time.Duration) string {
+	if d < time.Millisecond {
+		return fmt.Sprintf("%dµs", d.Microseconds())
+	}
+	if d < time.Second {
+		return fmt.Sprintf("%dms", d.Milliseconds())
+	}
+	return fmt.Sprintf("%.1fs", d.Seconds())
 }
